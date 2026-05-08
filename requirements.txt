@@ -9,3 +9,4 @@ openai-whisper==20240930
 scikit-learn==1.6.1
 gunicorn==23.0.0
 tf-keras==2.19.0
+setuptools>=65.0.0
