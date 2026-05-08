@@ -1,0 +1,14 @@
+{
+  "phases": {
+    "install": {
+      "cmds": [
+        "python -m venv /app/.venv",
+        "/app/.venv/bin/pip install --upgrade pip setuptools wheel",
+        "/app/.venv/bin/pip install -r requirements.txt"
+      ]
+    }
+  },
+  "deploy": {
+    "cmd": "gunicorn app:app"
+  }
+}
