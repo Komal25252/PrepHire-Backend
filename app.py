@@ -9,11 +9,8 @@ from PIL import Image
 import numpy as np
 from deepface import DeepFace
 import os
-import whisper
+from faster_whisper import WhisperModel
 import tempfile
-
-# Ensure common paths for ffmpeg (especially for Mac Homebrew)
-os.environ["PATH"] += os.pathsep + "/opt/homebrew/bin" + os.pathsep + "/usr/local/bin"
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
@@ -26,9 +23,9 @@ classifier = joblib.load(os.path.join(_MODEL_DIR, "resume_classifier_model.pkl")
 vectorizer = joblib.load(os.path.join(_MODEL_DIR, "tfidf_vectorizer.pkl"))
 encoder = joblib.load(os.path.join(_MODEL_DIR, "label_encoder.pkl"))
 
-# Load Whisper model (base version is good for Mac)
-print(">>> Loading Whisper base model...")
-stt_model = whisper.load_model("base")
+# Load faster-whisper model (base, CPU mode)
+print(">>> Loading faster-whisper base model...")
+stt_model = WhisperModel("base", device="cpu", compute_type="int8")
 
 def clean_resume(text):
     text = re.sub(r'http\S+\s*', ' ', text)
@@ -123,8 +120,8 @@ def transcribe_audio():
         tmp_path = tmp.name
 
     try:
-        result = stt_model.transcribe(tmp_path)
-        text = result["text"].strip()
+        segments, _ = stt_model.transcribe(tmp_path, beam_size=5)
+        text = " ".join(segment.text for segment in segments).strip()
         print(f">>> Whisper Output: {text}")
         return jsonify({
             "text": text,

@@ -5,7 +5,7 @@ PyPDF2==3.0.1
 Pillow==11.2.1
 numpy==1.26.4
 deepface==0.0.93
-openai-whisper @ git+https://github.com/openai/whisper.git@v20240930
+faster-whisper==1.1.1
 scikit-learn==1.6.1
 gunicorn==23.0.0
 tf-keras==2.19.0
