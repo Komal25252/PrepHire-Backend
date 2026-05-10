@@ -40,7 +40,7 @@ def load_resume_models():
 # ── HSEmotion ONNX model (Ultra Lightweight) ──────────────────────────────────
 print(">>> Loading HSEmotion ONNX model...")
 # Using a small efficientnet_b0 model for best speed/memory balance
-fer_model = HSEmotionRecognizer(model_name='enet_b0_8_best_afew', device='cpu')
+fer_model = HSEmotionRecognizer(model_name='enet_b0_8_best_afew')
 
 # AffectNet 8-class label mapping (used by enet_b0_8_best_afew)
 # We map them to the 7 classes used by the frontend if needed
