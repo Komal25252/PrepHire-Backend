@@ -12,7 +12,7 @@ from PIL import Image
 import PyPDF2
 from flask_cors import CORS
 from faster_whisper import WhisperModel
-from hsemotion_onnx import HSEmotionRecognizer
+from hsemotion_onnx.facial_emotions import HSEmotionRecognizer
 import gc
 
 app = Flask(__name__)
