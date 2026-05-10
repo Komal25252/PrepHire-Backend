@@ -134,5 +134,9 @@ def transcribe_audio():
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
+@app.route("/health", methods=["GET"])
+def health():
+    return {"status": "ok"}, 200
+
 if __name__ == "__main__":
     app.run(port=5000, debug=True)

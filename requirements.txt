@@ -9,3 +9,4 @@ faster-whisper==1.1.1
 scikit-learn==1.6.1
 gunicorn==23.0.0
 tf-keras==2.19.0
+opencv-python-headless==4.10.0.84
