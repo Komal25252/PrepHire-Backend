@@ -12,11 +12,8 @@ from PIL import Image
 import PyPDF2
 from flask_cors import CORS
 from faster_whisper import WhisperModel
-import tensorflow as tf
+from hsemotion_onnx import HSEmotionRecognizer
 import gc
-
-# Force TensorFlow to use CPU and reduce memory growth
-tf.config.set_visible_devices([], 'GPU')
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
@@ -25,20 +22,30 @@ CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 _ML_DIR   = os.path.dirname(os.path.abspath(__file__))
 _MODEL_DIR = os.path.join(_ML_DIR, 'resume-class-ml')
 
-# ── Resume classifier (Optimized with mmap_mode='r') ─────────────
-print(">>> Loading Resume Classifier (mmap_mode='r')...")
-classifier = joblib.load(os.path.join(_MODEL_DIR, "resume_classifier_model.pkl"), mmap_mode='r')
-vectorizer = joblib.load(os.path.join(_MODEL_DIR, "tfidf_vectorizer.pkl"), mmap_mode='r')
-encoder    = joblib.load(os.path.join(_MODEL_DIR, "label_encoder.pkl"), mmap_mode='r')
+# ── Resume classifier (Lazy Loading) ──────────────────────────────────────────
+_classifier = None
+_vectorizer = None
+_encoder    = None
 
-# ── MobileNet FER model ──────────────────────────────────────────────────────
-print(">>> Loading MobileNet FER model...")
-fer_model = tf.keras.models.load_model(
-    os.path.join(_ML_DIR, "mobilenet_7.h5"), compile=False
-)
+def load_resume_models():
+    global _classifier, _vectorizer, _encoder
+    if _classifier is None:
+        print(">>> Lazy loading Resume Classifier (mmap_mode='r')...")
+        _classifier = joblib.load(os.path.join(_MODEL_DIR, "resume_classifier_model.pkl"), mmap_mode='r')
+        _vectorizer = joblib.load(os.path.join(_MODEL_DIR, "tfidf_vectorizer.pkl"), mmap_mode='r')
+        _encoder    = joblib.load(os.path.join(_MODEL_DIR, "label_encoder.pkl"), mmap_mode='r')
+        gc.collect()
+    return _classifier, _vectorizer, _encoder
 
-# AffectNet 7-class label order used by mobilenet_7.h5
-EMOTION_LABELS = ['anger', 'disgust', 'fear', 'happy', 'neutral', 'sadness', 'surprise']
+# ── HSEmotion ONNX model (Ultra Lightweight) ──────────────────────────────────
+print(">>> Loading HSEmotion ONNX model...")
+# Using a small efficientnet_b0 model for best speed/memory balance
+fer_model = HSEmotionRecognizer(model_name='enet_b0_8_best_afew', device='cpu')
+
+# AffectNet 8-class label mapping (used by enet_b0_8_best_afew)
+# We map them to the 7 classes used by the frontend if needed
+# Standard HSEmotion 8 labels: anger, contempt, disgust, fear, happy, neutral, sad, surprise
+HSE_LABELS = fer_model.idx_to_class
 
 # OpenCV face detector (ships with opencv-python-headless, no extra download)
 _HAAR = cv2.CascadeClassifier(
@@ -68,16 +75,23 @@ def clean_resume(text: str) -> str:
 
 def predict_emotion(img_rgb: np.ndarray):
     """
-    Run MobileNet FER on a single face crop.
-    img_rgb: H×W×3 uint8 numpy array (any size — will be resized to 224×224)
+    Run HSEmotion ONNX on a single face crop.
     Returns (dominant_emotion, scores_dict)
     """
-    face_resized = cv2.resize(img_rgb, (224, 224))
-    face_input   = np.expand_dims(face_resized.astype("float32") / 255.0, axis=0)
-    preds        = fer_model.predict(face_input, verbose=0)[0]          # shape (7,)
-    scores       = {EMOTION_LABELS[i]: float(preds[i] * 100) for i in range(7)}
-    dominant     = EMOTION_LABELS[int(np.argmax(preds))]
-    return dominant, scores
+    # HSEmotion handle resizing and normalization internally
+    emotion, scores = fer_model.predict_emotions(img_rgb, logits=False)
+    
+    # Standardize labels to lowercase for frontend consistency
+    scores_dict = {}
+    for label, score in zip(fer_model.idx_to_class.values(), scores):
+        l = label.lower()
+        if l == 'sad': l = 'sadness'
+        scores_dict[l] = float(score * 100)
+    
+    dom_emotion = emotion.lower()
+    if dom_emotion == 'sad': dom_emotion = 'sadness'
+    
+    return dom_emotion, scores_dict
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -94,15 +108,17 @@ def predict():
 
     file = request.files['file']
     try:
+        clf, vec_model, enc = load_resume_models()
+        
         pdf_reader = PyPDF2.PdfReader(file)
         raw_text = "".join(page.extract_text() or "" for page in pdf_reader.pages)
 
         cleaned_text = clean_resume(raw_text)
-        vec          = vectorizer.transform([cleaned_text])
-        pred         = classifier.predict(vec)
-        domain_name  = encoder.inverse_transform(pred)[0]
+        vec          = vec_model.transform([cleaned_text])
+        pred         = clf.predict(vec)
+        domain_name  = enc.inverse_transform(pred)[0]
 
-        probs      = classifier.predict_proba(vec)
+        probs      = clf.predict_proba(vec)
         confidence = float(np.max(probs) * 100)
 
         return jsonify({
