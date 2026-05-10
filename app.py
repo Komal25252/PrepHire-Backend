@@ -13,6 +13,10 @@ import PyPDF2
 from flask_cors import CORS
 from faster_whisper import WhisperModel
 import tensorflow as tf
+import gc
+
+# Force TensorFlow to use CPU and reduce memory growth
+tf.config.set_visible_devices([], 'GPU')
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
@@ -21,10 +25,11 @@ CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 _ML_DIR   = os.path.dirname(os.path.abspath(__file__))
 _MODEL_DIR = os.path.join(_ML_DIR, 'resume-class-ml')
 
-# ── Resume classifier ────────────────────────────────────────────────────────
-classifier = joblib.load(os.path.join(_MODEL_DIR, "resume_classifier_model.pkl"))
-vectorizer = joblib.load(os.path.join(_MODEL_DIR, "tfidf_vectorizer.pkl"))
-encoder    = joblib.load(os.path.join(_MODEL_DIR, "label_encoder.pkl"))
+# ── Resume classifier (Optimized with mmap_mode='r') ─────────────
+print(">>> Loading Resume Classifier (mmap_mode='r')...")
+classifier = joblib.load(os.path.join(_MODEL_DIR, "resume_classifier_model.pkl"), mmap_mode='r')
+vectorizer = joblib.load(os.path.join(_MODEL_DIR, "tfidf_vectorizer.pkl"), mmap_mode='r')
+encoder    = joblib.load(os.path.join(_MODEL_DIR, "label_encoder.pkl"), mmap_mode='r')
 
 # ── MobileNet FER model ──────────────────────────────────────────────────────
 print(">>> Loading MobileNet FER model...")
@@ -40,9 +45,13 @@ _HAAR = cv2.CascadeClassifier(
     cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
 )
 
-# ── Whisper STT ──────────────────────────────────────────────────────────────
-print(">>> Loading faster-whisper base model...")
-stt_model = WhisperModel("base", device="cpu", compute_type="int8")
+# ── Whisper STT (Optimized to 'tiny') ─────────────────────────────────────
+print(">>> Loading faster-whisper tiny model...")
+stt_model = WhisperModel("tiny", device="cpu", compute_type="int8")
+
+# Explicitly clear memory after loading models
+gc.collect()
+print(">>> Model loading complete. GC collected.")
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -166,4 +175,6 @@ def transcribe_audio():
 
 
 if __name__ == "__main__":
-    app.run(port=5000, debug=True)
+    # Disable debug mode in production to save memory
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)

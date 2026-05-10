@@ -5,7 +5,7 @@ PyPDF2==3.0.1
 Pillow==11.2.1
 numpy==1.26.4
 opencv-python-headless==4.10.0.84
-tensorflow==2.16.2
+tensorflow-cpu==2.16.2
 scikit-learn==1.6.1
 faster-whisper==1.1.1
 gunicorn==23.0.0
