@@ -73,23 +73,45 @@ def clean_resume(text: str) -> str:
     return text.lower().strip()
 
 
+# Dedicated Smile Cascade for boosting sensitivity
+_SMILE = cv2.CascadeClassifier(
+    cv2.data.haarcascades + "haarcascade_smile.xml"
+)
+
 def predict_emotion(img_rgb: np.ndarray):
     """
-    Run HSEmotion ONNX on a single face crop.
-    Returns (dominant_emotion, scores_dict)
+    Run HSEmotion ONNX on a single face crop with a dedicated Smile Booster.
     """
     # HSEmotion handle resizing and normalization internally
     emotion, scores = fer_model.predict_emotions(img_rgb, logits=False)
+    
+    # Convert to grayscale for smile cascade (faster/more reliable for Haar)
+    img_gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
     
     # Standardize labels to lowercase for frontend consistency
     scores_dict = {}
     for label, score in zip(fer_model.idx_to_class.values(), scores):
         l = label.lower()
-        if l == 'sad': l = 'sadness'
+        if l == 'sad' or l == 'sadness': l = 'sadness'
+        elif l == 'happy' or l == 'happiness': l = 'happy'
         scores_dict[l] = float(score * 100)
+
+    # SMILE BOOSTER: Use dedicated cascade to find smiles
+    # scaleFactor and minNeighbors tuned for "relaxed" detection
+    smiles = _SMILE.detectMultiScale(img_gray, scaleFactor=1.7, minNeighbors=20)
     
-    dom_emotion = emotion.lower()
-    if dom_emotion == 'sad': dom_emotion = 'sadness'
+    if len(smiles) > 0:
+        # Boost happy score and reduce neutral/fear if a smile is physically detected
+        scores_dict['happy'] = max(scores_dict.get('happy', 0), 75.0)
+        if 'neutral' in scores_dict: scores_dict['neutral'] *= 0.5
+        if 'fear' in scores_dict: scores_dict['fear'] *= 0.5
+        print(f">>> SMILE CASCADE TRIGGERED: Boosting Happy score")
+
+    # Re-calculate dominant after boost
+    dominant = max(scores_dict, key=scores_dict.get)
+    print(f">>> Detected: {dominant.upper()} ({scores_dict[dominant]:.1f}%) | Happy: {scores_dict.get('happy', 0):.1f}%")
+    
+    return dominant, scores_dict
     
     return dom_emotion, scores_dict
 
@@ -158,7 +180,13 @@ def analyze_emotion():
         else:
             # Use the largest detected face
             x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
-            face_crop   = img_rgb[y:y+h, x:x+w]
+            
+            # Add a 20% margin for better context
+            dw, dh = int(w * 0.2), int(h * 0.2)
+            y1, y2 = max(0, y - dh), min(img_rgb.shape[0], y + h + dh)
+            x1, x2 = max(0, x - dw), min(img_rgb.shape[1], x + w + dw)
+            
+            face_crop = img_rgb[y1:y2, x1:x2]
             dominant, scores = predict_emotion(face_crop)
 
         return jsonify({"emotion": dominant, "scores": scores})
